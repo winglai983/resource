@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>個人消費控制助手 v2.0</title>
+  <title>個人消費控制助手 v3.0</title>
   <!-- 引入 Chart.js 繪製圓餅圖 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -38,7 +38,7 @@
     }
 
     h1 { font-size: 1.5rem; margin-bottom: 16px; text-align: center; }
-    h3 { font-size: 1.1rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    h3 { font-size: 1.1rem; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
 
     .card {
       background: var(--card-bg);
@@ -139,6 +139,15 @@
 
     button:active { background-color: var(--primary-dark); }
 
+    .btn-danger {
+      background-color: #fee2e2;
+      color: var(--expense);
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      border-radius: 6px;
+      width: auto;
+    }
+
     .card-reminder-item {
       display: flex;
       justify-content: space-between;
@@ -170,7 +179,7 @@
 
     .trans-main { display: flex; flex-direction: column; }
     .trans-cat { font-weight: 600; }
-    .trans-date { font-size: 0.75rem; color: var(--text-light); margin-top: 2px; }
+    .trans-info { font-size: 0.75rem; color: var(--text-light); margin-top: 2px; }
     
     .trans-amount { font-weight: 700; font-size: 1.1rem; }
     .amount-income { color: var(--income); }
@@ -195,7 +204,7 @@
 </head>
 <body>
 
-  <h1>💰 個人財務助手</h1>
+  <h1>💰 個人財務助手 v3.0</h1>
 
   <!-- 1. 當月總覽儀表板 -->
   <div class="card dashboard">
@@ -233,15 +242,15 @@
     </div>
   </div>
 
-  <!-- 2. 設定區 -->
+  <!-- 2. 設定區 (預算與信用卡) -->
   <div class="card">
     <details>
-      <summary>⚙️ 設定預算與信用卡</summary>
+      <summary>⚙️ 設定預算與管理信用卡</summary>
       <div style="margin-top: 15px;">
         <form id="budgetForm" style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border);">
           <h4 style="margin-bottom: 10px; font-size: 0.9rem;">🎯 設定每月支出預算</h4>
           <div class="form-group" style="display: flex; gap: 8px;">
-            <input type="number" id="budgetAmount" placeholder="輸入預算金額 (如: 20000)" required>
+            <input type="number" id="budgetAmount" placeholder="輸入預算金額" required>
             <button type="submit" style="width: auto; white-space: nowrap; padding: 0 15px;">設定</button>
           </div>
         </form>
@@ -261,40 +270,49 @@
     </details>
   </div>
 
-  <!-- 3. 信用卡提醒卡片 -->
+  <!-- 3. 信用卡提醒與清單管理卡片 -->
   <div class="card">
     <h3>💳 信用卡繳費與結帳提醒</h3>
     <div id="creditCardList"></div>
   </div>
 
-  <!-- 4. 新增記帳卡片 -->
+  <!-- 4. 新增記帳卡片 (支援支付方式與多種收入分類) -->
   <div class="card">
     <h3>📝 新增收支記錄</h3>
     <form id="transactionForm">
       <div class="form-group">
-        <select id="type">
+        <label>收支類型</label>
+        <select id="type" onchange="handleTypeChange()">
           <option value="expense">支出 (-)</option>
           <option value="income">收入 (+)</option>
         </select>
       </div>
+
       <div class="form-group">
+        <label>支付方式 / 帳戶</label>
+        <select id="paymentMethod">
+          <!-- 動態由 JavaScript 生成選項 -->
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>金額</label>
         <input type="number" id="amount" placeholder="金額" inputmode="numeric" required>
       </div>
+
       <div class="form-group">
-        <input type="text" id="category" placeholder="類別 (如: 餐飲、薪資、娛樂)" list="defaultCategories" required>
-        <datalist id="defaultCategories">
-          <option value="餐飲">
-          <option value="交通">
-          <option value="購物">
-          <option value="娛樂">
-          <option value="租金">
-          <option value="水電費">
-          <option value="薪資">
+        <label>類別</label>
+        <input type="text" id="category" placeholder="選擇或輸入類別" list="categoryOptions" required>
+        <datalist id="categoryOptions">
+          <!-- 動態切換收入/支出預設類別 -->
         </datalist>
       </div>
+
       <div class="form-group">
+        <label>日期</label>
         <input type="date" id="date" required>
       </div>
+
       <button type="submit">記下一筆</button>
     </form>
   </div>
@@ -306,6 +324,7 @@
   </div>
 
   <script>
+    // --- 資料狀態 ---
     let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
     let creditCards = JSON.parse(localStorage.getItem('creditCards')) || [];
     let monthlyBudget = parseFloat(localStorage.getItem('monthlyBudget')) || 0;
@@ -316,17 +335,74 @@
     const todayStr = now.toISOString().substring(0, 10);
     document.getElementById('date').value = todayStr;
 
+    // 預設分類選項
+    const expenseCategories = ['餐飲', '交通', '購物', '娛樂', '租金', '水電費', '醫療', '其他支出'];
+    const incomeCategories = ['薪資', '獎金', '投資收益', '副業/兼職', '紅包/壓歲錢', '其他收入'];
+
     function init() {
       initChart();
       updateDashboard();
       renderCreditCards();
       renderTransactions();
+      handleTypeChange(); // 初始化下拉選項
       
       if (monthlyBudget > 0) {
         document.getElementById('budgetAmount').value = monthlyBudget;
       }
     }
 
+    // 當切換「收入」或「支出」時，動態改變「支付方式」與「類別建議」
+    function handleTypeChange() {
+      const type = document.getElementById('type').value;
+      const paymentSelect = document.getElementById('paymentMethod');
+      const categoryDatalist = document.getElementById('categoryOptions');
+
+      paymentSelect.innerHTML = '';
+      categoryDatalist.innerHTML = '';
+
+      if (type === 'expense') {
+        // 支出：可選現金或已儲存的信用卡
+        const cashOpt = document.createElement('option');
+        cashOpt.value = '現金';
+        cashOpt.textContent = '💵 現金 / 轉帳';
+        paymentSelect.appendChild(cashOpt);
+
+        creditCards.forEach(card => {
+          const opt = document.createElement('option');
+          opt.value = `信用卡:${card.name}`;
+          opt.textContent = `💳 ${card.name} (結帳日:${card.statementDay}日)`;
+          paymentSelect.appendChild(opt);
+        });
+
+        // 填充支出類別
+        expenseCategories.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          categoryDatalist.appendChild(opt);
+        });
+
+      } else {
+        // 收入：可選銀行戶頭或現金
+        const bankOpt = document.createElement('option');
+        bankOpt.value = '銀行轉帳';
+        bankOpt.textContent = '🏦 銀行轉帳 / 帳戶';
+        paymentSelect.appendChild(bankOpt);
+
+        const cashOpt = document.createElement('option');
+        cashOpt.value = '現金';
+        cashOpt.textContent = '💵 現金';
+        paymentSelect.appendChild(cashOpt);
+
+        // 填充收入類別
+        incomeCategories.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          categoryDatalist.appendChild(opt);
+        });
+      }
+    }
+
+    // --- 圖表邏輯 ---
     function initChart() {
       const ctx = document.getElementById('expenseChart').getContext('2d');
       const config = {
@@ -335,9 +411,7 @@
           labels: [],
           datasets: [{
             data: [],
-            backgroundColor: [
-              '#818cf8', '#38bdf8', '#fb7185', '#fb923c', '#4ade80', '#a78bfa', '#e879f9'
-            ],
+            backgroundColor: ['#818cf8', '#38bdf8', '#fb7185', '#fb923c', '#4ade80', '#a78bfa', '#e879f9'],
             borderWidth: 0,
             hoverOffset: 4
           }]
@@ -378,17 +452,14 @@
       } else {
         expenseChart.data.labels = labels;
         expenseChart.data.datasets[0].data = data;
-        expenseChart.data.datasets[0].backgroundColor = [
-          '#818cf8', '#38bdf8', '#fb7185', '#fb923c', '#4ade80', '#a78bfa', '#e879f9'
-        ];
+        expenseChart.data.datasets[0].backgroundColor = ['#818cf8', '#38bdf8', '#fb7185', '#fb923c', '#4ade80', '#a78bfa', '#e879f9'];
         expenseChart.options.plugins.tooltip.enabled = true;
       }
-      
       expenseChart.update();
     }
 
+    // --- 儀表板計算 ---
     function updateDashboard() {
-      const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth();
 
@@ -459,6 +530,7 @@
       valueText.textContent = `$${currentExpense.toLocaleString()} / $${monthlyBudget.toLocaleString()}`;
     }
 
+    // --- 信用卡渲染與刪除功能 ---
     function renderCreditCards() {
       const listEl = document.getElementById('creditCardList');
       listEl.innerHTML = '';
@@ -478,13 +550,7 @@
         div.className = 'card-reminder-item';
 
         let dueThisMonth = new Date(currentYear, currentMonth, card.dueDate);
-        let targetDueDate;
-
-        if (dueThisMonth >= today) {
-          targetDueDate = dueThisMonth;
-        } else {
-          targetDueDate = new Date(currentYear, currentMonth + 1, card.dueDate);
-        }
+        let targetDueDate = (dueThisMonth >= today) ? dueThisMonth : new Date(currentYear, currentMonth + 1, card.dueDate);
 
         const timeDiff = targetDueDate - today;
         const daysLeft = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
@@ -492,29 +558,33 @@
         let badgeClass = 'badge';
         let statusTag = `${daysLeft}天後`;
 
-        if (daysLeft === 0) {
-          badgeClass = 'badge alert';
-          statusTag = '今天繳費！';
-        } else if (daysLeft <= 3) {
-          badgeClass = 'badge alert';
-          statusTag = `截止倒數 ${daysLeft} 天`;
-        } else if (daysLeft <= 7) {
-          badgeClass = 'badge soon';
-        }
+        if (daysLeft === 0) { badgeClass = 'badge alert'; statusTag = '今天繳費！'; }
+        else if (daysLeft <= 3) { badgeClass = 'badge alert'; statusTag = `倒數 ${daysLeft} 天`; }
+        else if (daysLeft <= 7) { badgeClass = 'badge soon'; }
 
         div.innerHTML = `
           <div class="trans-main">
             <span class="trans-cat">${card.name}</span>
-            <span class="trans-date">每月 ${card.statementDay} 日結帳</span>
+            <span class="trans-info">結帳日:${card.statementDay}日 | 繳費日:${card.dueDate}日</span>
           </div>
-          <div>
-            <span class="${badgeClass}">${statusTag} (${targetDueDate.getMonth()+1}/${targetDueDate.getDate()})</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="${badgeClass}">${statusTag}</span>
+            <button class="btn-danger" onclick="deleteCard(${card.id})">刪除</button>
           </div>
         `;
         listEl.appendChild(div);
       });
     }
 
+    function deleteCard(id) {
+      if (confirm('確定要刪除這張信用卡嗎？')) {
+        creditCards = creditCards.filter(c => c.id !== id);
+        localStorage.setItem('creditCards', JSON.stringify(creditCards));
+        init();
+      }
+    }
+
+    // --- 交易記錄渲染 ---
     function renderTransactions() {
       const listEl = document.getElementById('transactionList');
       listEl.innerHTML = '';
@@ -536,11 +606,12 @@
         
         const d = new Date(t.date);
         const dateShow = `${d.getMonth()+1}/${d.getDate()}`;
+        const paymentInfo = t.paymentMethod ? ` • ${t.paymentMethod.replace('信用卡:', '')}` : '';
 
         div.innerHTML = `
           <div class="trans-main">
             <span class="trans-cat">${t.category}</span>
-            <span class="trans-date">${dateShow}</span>
+            <span class="trans-info">${dateShow}${paymentInfo}</span>
           </div>
           <div class="${amountClass}">
             ${sign}${parseFloat(t.amount).toLocaleString()}
@@ -551,6 +622,7 @@
       });
     }
 
+    // --- 表單事件監聽 ---
     document.getElementById('budgetForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const amount = parseFloat(document.getElementById('budgetAmount').value);
@@ -560,21 +632,20 @@
         alert('預算設定成功！');
         document.querySelector('details').open = false;
         init();
-      } else {
-        alert('請輸入有效的預算金額');
       }
     });
 
     document.getElementById('transactionForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const type = document.getElementById('type').value;
+      const paymentMethod = document.getElementById('paymentMethod').value;
       const amount = document.getElementById('amount').value;
       const category = document.getElementById('category').value;
       const date = document.getElementById('date').value;
 
       if(amount <= 0) { alert('請輸入金額'); return; }
 
-      transactions.push({ id: Date.now(), type, amount, category, date });
+      transactions.push({ id: Date.now(), type, paymentMethod, amount, category, date });
       localStorage.setItem('transactions', JSON.stringify(transactions));
 
       document.getElementById('amount').value = '';
